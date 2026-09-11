@@ -399,6 +399,11 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      .syncStatus {
+        font-size: 11px;
+        color: #2f7a4f;
+        margin-top: 2px;
+      }
       .signOut {
         padding: 9px 12px;
         background: #e8ebef;
@@ -503,6 +508,7 @@
           <div>
             <div class="name">月予算メモ</div>
             <div id="userEmail" class="userEmail"></div>
+            <div id="syncStatus" class="syncStatus">同期を準備中…</div>
           </div>
           <button class="signOut" onclick="signOut()">ログアウト</button>
         </div>
@@ -670,6 +676,9 @@
           <div class="routeIntro">
             <h2>アカウント設定</h2>
             <div class="sub">ログイン中：<span id="settingsEmail"></span></div>
+            <div class="sub" style="margin-top: 8px">
+              家計データはこの端末とSupabaseの両方に保存され、同じアカウントの端末間で同期されます。
+            </div>
             <button class="reset" onclick="signOut()">
               この端末からログアウト
             </button>
@@ -679,7 +688,7 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
     <script>
-      const APP_VERSION = "2026-09-11-07",
+      const APP_VERSION = "2026-09-11-08",
         DEFAULT_TOTAL = 77000,
         BASE_NAMES = [
           "食費",
@@ -827,6 +836,7 @@
         if (!incomeInherited && income > 0)
           localStorage.setItem(incomeKey(current), String(income));
         else if (!incomeInherited) localStorage.removeItem(incomeKey(current));
+        markCloudDirty();
       }
       function render() {
         monthPicker.value = current;
@@ -1034,7 +1044,8 @@
         const d = { version: 1, created: new Date().toISOString(), data: {} };
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k && k.startsWith("budget-")) d.data[k] = localStorage.getItem(k);
+          if (k && k.startsWith("budget-") && !k.startsWith("budget-cloud-"))
+            d.data[k] = localStorage.getItem(k);
         }
         return btoa(unescape(encodeURIComponent(JSON.stringify(d))));
       }
@@ -1063,9 +1074,10 @@
           )
             return;
           Object.keys(d.data).forEach((k) => {
-            if (k.startsWith("budget-"))
+            if (k.startsWith("budget-") && !k.startsWith("budget-cloud-"))
               localStorage.setItem(k, String(d.data[k]));
           });
+          markCloudDirty();
           alert("データを引き継ぎました。");
           location.reload();
         } catch (e) {
@@ -1105,6 +1117,7 @@
       function toggleSoloMode() {
         soloMode = !soloMode;
         localStorage.setItem(SOLO_KEY, soloMode ? "1" : "0");
+        markCloudDirty();
         render();
       }
       function setTotalBudget(v) {
@@ -1128,6 +1141,7 @@
         if (!m) return;
         current = m;
         localStorage.setItem(LAST_MONTH_KEY, current);
+        markCloudDirty();
         data = load(current);
         totalBudget = loadTotal(current);
         ({ value: income, inherited: incomeInherited } =
@@ -1153,6 +1167,7 @@
         localStorage.removeItem(key(current));
         localStorage.removeItem(totalKey(current));
         localStorage.removeItem(incomeKey(current));
+        markCloudDirty();
         data = load(current);
         totalBudget = loadTotal(current);
         ({ value: income, inherited: incomeInherited } =
@@ -1205,6 +1220,153 @@
         SUPABASE_PUBLISHABLE_KEY,
       );
       const ROUTES = ["home", "budget", "analytics", "transfer", "settings"];
+      const CLOUD_OWNER_KEY = "budget-cloud-owner";
+      const CLOUD_LOCAL_UPDATED_KEY = "budget-cloud-local-updated";
+      let cloudUserId = null;
+      let cloudReady = false;
+      let cloudTimer = null;
+      let cloudInitPromise = null;
+
+      function setSyncStatus(message, isError = false) {
+        if (!window.syncStatus) return;
+        syncStatus.textContent = message;
+        syncStatus.style.color = isError ? "#b13d3d" : "#2f7a4f";
+      }
+      function getBudgetPayload() {
+        const payload = {};
+        for (let i = 0; i < localStorage.length; i++) {
+          const storageKey = localStorage.key(i);
+          if (
+            storageKey?.startsWith("budget-") &&
+            !storageKey.startsWith("budget-cloud-")
+          )
+            payload[storageKey] = localStorage.getItem(storageKey);
+        }
+        return payload;
+      }
+      function replaceBudgetPayload(payload) {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const storageKey = localStorage.key(i);
+          if (
+            storageKey?.startsWith("budget-") &&
+            !storageKey.startsWith("budget-cloud-")
+          )
+            keys.push(storageKey);
+        }
+        keys.forEach((storageKey) => localStorage.removeItem(storageKey));
+        Object.entries(payload || {}).forEach(([storageKey, value]) => {
+          if (
+            storageKey.startsWith("budget-") &&
+            !storageKey.startsWith("budget-cloud-")
+          )
+            localStorage.setItem(storageKey, String(value));
+        });
+      }
+      function reloadBudgetFromStorage() {
+        current = /^\d{4}-\d{2}$/.test(
+          localStorage.getItem(LAST_MONTH_KEY) || "",
+        )
+          ? localStorage.getItem(LAST_MONTH_KEY)
+          : "2026-08";
+        soloMode = localStorage.getItem(SOLO_KEY) === "1";
+        data = load(current);
+        totalBudget = loadTotal(current);
+        ({ value: income, inherited: incomeInherited } =
+          getIncomeInfo(current));
+        render();
+      }
+      function markCloudDirty() {
+        localStorage.setItem(CLOUD_LOCAL_UPDATED_KEY, new Date().toISOString());
+        if (!cloudReady || !cloudUserId) return;
+        setSyncStatus("保存中…");
+        clearTimeout(cloudTimer);
+        cloudTimer = setTimeout(() => void pushCloudSnapshot(), 500);
+      }
+      async function pushCloudSnapshot() {
+        if (!cloudReady || !cloudUserId) return;
+        clearTimeout(cloudTimer);
+        const updatedAt =
+          localStorage.getItem(CLOUD_LOCAL_UPDATED_KEY) ||
+          new Date().toISOString();
+        const { error } = await supabaseClient.from("budget_snapshots").upsert(
+          {
+            user_id: cloudUserId,
+            payload: getBudgetPayload(),
+            updated_at: updatedAt,
+          },
+          { onConflict: "user_id" },
+        );
+        if (error) {
+          setSyncStatus("同期エラー（端末には保存済み）", true);
+          return;
+        }
+        setSyncStatus("✓ クラウド同期済み");
+      }
+      async function performInitialCloudSync(userId) {
+        cloudReady = false;
+        setSyncStatus("同期中…");
+        const owner = localStorage.getItem(CLOUD_OWNER_KEY);
+        const localUpdated = localStorage.getItem(CLOUD_LOCAL_UPDATED_KEY);
+        const { data: remote, error } = await supabaseClient
+          .from("budget_snapshots")
+          .select("payload, updated_at")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (error) throw error;
+
+        if (!remote) {
+          if (owner && owner !== userId) {
+            replaceBudgetPayload({});
+            reloadBudgetFromStorage();
+          }
+          const updatedAt = new Date().toISOString();
+          const { error: uploadError } = await supabaseClient
+            .from("budget_snapshots")
+            .upsert(
+              {
+                user_id: userId,
+                payload: getBudgetPayload(),
+                updated_at: updatedAt,
+              },
+              { onConflict: "user_id" },
+            );
+          if (uploadError) throw uploadError;
+          localStorage.setItem(CLOUD_LOCAL_UPDATED_KEY, updatedAt);
+        } else if (
+          owner === userId &&
+          localUpdated &&
+          new Date(localUpdated) > new Date(remote.updated_at)
+        ) {
+          const { error: uploadError } = await supabaseClient
+            .from("budget_snapshots")
+            .upsert(
+              {
+                user_id: userId,
+                payload: getBudgetPayload(),
+                updated_at: localUpdated,
+              },
+              { onConflict: "user_id" },
+            );
+          if (uploadError) throw uploadError;
+        } else {
+          replaceBudgetPayload(remote.payload);
+          localStorage.setItem(CLOUD_LOCAL_UPDATED_KEY, remote.updated_at);
+          reloadBudgetFromStorage();
+        }
+        localStorage.setItem(CLOUD_OWNER_KEY, userId);
+        cloudReady = true;
+        setSyncStatus("✓ クラウド同期済み");
+      }
+      function initialiseCloudSync(userId) {
+        if (cloudReady && cloudUserId === userId) return Promise.resolve();
+        if (cloudInitPromise && cloudUserId === userId) return cloudInitPromise;
+        cloudUserId = userId;
+        cloudInitPromise = performInitialCloudSync(userId).finally(() => {
+          cloudInitPromise = null;
+        });
+        return cloudInitPromise;
+      }
 
       function setAuthMessage(message, isError = false) {
         authMessage.textContent = message;
@@ -1236,6 +1398,8 @@
         );
       }
       async function signOut() {
+        await pushCloudSnapshot();
+        cloudReady = false;
         await supabaseClient.auth.signOut();
         location.hash = "";
       }
@@ -1267,25 +1431,39 @@
           60,
         );
       }
-      function showSession(session) {
+      async function showSession(session) {
         const loggedIn = Boolean(session);
-        authGate.style.display = loggedIn ? "none" : "grid";
-        appShell.style.display = loggedIn ? "block" : "none";
-        if (loggedIn) {
-          const email = session.user.email || "ログイン済み";
-          userEmail.textContent = email;
-          settingsEmail.textContent = email;
-          if (!location.hash) location.hash = "home";
-          renderRoute();
+        if (!loggedIn) {
+          cloudReady = false;
+          cloudUserId = null;
+          authGate.style.display = "grid";
+          appShell.style.display = "none";
+          return;
         }
+        authGate.style.display = "grid";
+        appShell.style.display = "none";
+        setAuthMessage("家計データを同期中…");
+        try {
+          await initialiseCloudSync(session.user.id);
+        } catch (error) {
+          setSyncStatus("同期エラー（端末データで使用中）", true);
+          console.error("Initial cloud sync failed", error);
+        }
+        const email = session.user.email || "ログイン済み";
+        userEmail.textContent = email;
+        settingsEmail.textContent = email;
+        authGate.style.display = "none";
+        appShell.style.display = "block";
+        if (!location.hash) location.hash = "home";
+        renderRoute();
       }
       window.addEventListener("hashchange", renderRoute);
       supabaseClient.auth
         .getSession()
-        .then(({ data }) => showSession(data.session));
-      supabaseClient.auth.onAuthStateChange((_event, session) =>
-        showSession(session),
-      );
+        .then(({ data }) => void showSession(data.session));
+      supabaseClient.auth.onAuthStateChange((_event, session) => {
+        void showSession(session);
+      });
     </script>
   </body>
 </html>
