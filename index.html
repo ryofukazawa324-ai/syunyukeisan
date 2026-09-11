@@ -679,7 +679,7 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
     <script>
-      const APP_VERSION = "2026-09-11-06",
+      const APP_VERSION = "2026-09-11-07",
         DEFAULT_TOTAL = 77000,
         BASE_NAMES = [
           "食費",
@@ -1185,7 +1185,7 @@
           const html = await fetch(location.pathname + "?updatecheck=" + now, {
               cache: "no-store",
             }).then((r) => r.text()),
-            m = html.match(/const APP_VERSION='([^']+)'/);
+            m = html.match(/const APP_VERSION\s*=\s*["']([^"']+)["']/);
           if (m && m[1] !== APP_VERSION)
             location.replace(location.pathname + "?v=" + m[1]);
         } catch (e) {}
