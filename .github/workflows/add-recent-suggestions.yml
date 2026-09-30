@@ -1,4 +1,4 @@
-name: Add recent suggestions
+name: Apply memo suggestions
 on:
   push:
     paths:
@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 scripts/add_recent_suggestions.py
+      - run: python3 scripts/memo_only_suggestions.py
       - run: |
           git config user.name github-actions
           git config user.email actions@github.com
           git add index.html
-          git commit -m "Show three recent entries as suggestions" || true
+          git commit -m "Use recent memos as suggestions" || true
           git push
