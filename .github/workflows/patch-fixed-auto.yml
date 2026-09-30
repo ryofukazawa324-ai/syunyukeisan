@@ -1,4 +1,4 @@
-name: Patch fixed auto carryover v2
+name: Remove solo living mode button
 on:
   push:
     paths:
@@ -16,17 +16,17 @@ jobs:
           from pathlib import Path
           p=Path('index.html')
           s=p.read_text()
-          s=s.replace("const APP_VERSION='2026-09-27-02'", "const APP_VERSION='2026-09-27-03'")
-          old="function findPreviousAutoItems(m){let p=prevMonth(m);for(let i=0;i<120;i++){const s=localStorage.getItem(key(p));if(s)try{const cats=normalize(JSON.parse(s)),c=cats.find(x=>x.name==='固定費');if(c){const items=c.items.filter(x=>/auto\\s*$/i.test(String(x.memo||''))).map(x=>({amount:Number(x.amount)||0,memo:String(x.memo||'')})).filter(x=>x.amount>0);if(items.length)return items}}catch(e){}p=prevMonth(p)}return[]}"
-          new="function findPreviousAutoItems(m){let p=prevMonth(m);for(let i=0;i<120;i++){const s=localStorage.getItem(key(p));if(s)try{const cats=normalize(JSON.parse(s)),c=cats.find(x=>x.name==='固定費');if(c&&c.items.length){return c.items.map(x=>({amount:Number(x.amount)||0,memo:(String(x.memo||'').replace(/auto\\s*$/i,'').trim()||'固定費')+'auto'})).filter(x=>x.amount>0)}}catch(e){}p=prevMonth(p)}return[]}"
-          if old not in s:
-              raise SystemExit('v2 target block not found')
-          p.write_text(s.replace(old,new))
+          s=s.replace("const APP_VERSION='2026-09-27-03'", "const APP_VERSION='2026-09-30-01'")
+          start='<div class="modeBox"><div class="name">住まいモード</div><div id="modeHint" class="sub"></div><button id="modeBtn" class="modeBtn" onclick="toggleSoloMode()"></button></div>'
+          if start not in s:
+              raise SystemExit('solo mode button block not found')
+          s=s.replace(start,'')
+          p.write_text(s)
           PY
       - name: Commit patch
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add index.html
-          git commit -m "Fix fixed cost automatic carryover" || exit 0
+          git commit -m "Remove solo living mode button" || exit 0
           git push
