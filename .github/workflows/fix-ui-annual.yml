@@ -1,0 +1,34 @@
+name: Fix UI and annual summary
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-ui-annual.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch safely
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text()
+          mode='<div class="modeBox"><div class="name">住まいモード</div><div id="modeHint" class="sub"></div><button id="modeBtn" class="modeBtn" onclick="toggleSoloMode()"></button></div>'
+          s=s.replace(mode,'')
+          # Keep existing data and logic; only hide the old mode UI. JS references remain valid via optional hidden elements added below.
+          s=s.replace('<div class="summary">','<div style="display:none"><div id="modeHint"></div><button id="modeBtn"></button></div><div class="summary">',1)
+          # Annual income must only count months that actually have saved household data.
+          s=s.replace('getIncomeInfo(m).value','(hasSaved(m)?getIncomeInfo(m).value:0)')
+          s=s.replace("const APP_VERSION='2026-09-24-01'","const APP_VERSION='2026-10-01-01'")
+          p.write_text(s)
+          PY
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add index.html
+          git commit -m "Remove living mode button and fix annual income" || exit 0
+          git push
