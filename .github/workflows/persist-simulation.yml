@@ -1,0 +1,19 @@
+name: Persist simulation values
+on:
+  push:
+    paths:
+      - '.github/workflows/persist-simulation.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/persist_simulation.py
+      - run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add index.html
+          git commit -m "Remember living simulation values" || true
+          git push
