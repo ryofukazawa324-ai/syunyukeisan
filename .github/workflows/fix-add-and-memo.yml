@@ -1,0 +1,19 @@
+name: Fix add and memo interactions
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-add-and-memo.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/fix_add_and_memo.py
+      - run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add index.html
+          git commit -m "Fix adding expenses and memo suggestions" || true
+          git push
