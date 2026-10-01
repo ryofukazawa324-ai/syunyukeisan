@@ -1,0 +1,19 @@
+name: Fix memo suggestion taps
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-memo-tap.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/fix_memo_tap.py
+      - run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add index.html
+          git commit -m "Fix tapping recent memo suggestions" || true
+          git push
