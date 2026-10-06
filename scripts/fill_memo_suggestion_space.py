@@ -1,0 +1,10 @@
+from pathlib import Path
+p=Path('index.html')
+s=p.read_text()
+s=s.replace("const APP_VERSION='2026-10-01-07'", "const APP_VERSION='2026-10-06-01'")
+s=s.replace("for(let z=0;z<24&&out.length<3;z++)","for(let z=0;z<24&&out.length<30;z++)")
+s=s.replace("for(let i=c.items.length-1;i>=0&&out.length<3;i--)","for(let i=c.items.length-1;i>=0&&out.length<30;i--)")
+s=s.replace(".suggestions{display:flex;gap:6px;overflow-x:auto;margin-top:8px;padding-bottom:2px}",".suggestions{display:flex;gap:6px;overflow:hidden;margin-top:8px;padding-bottom:2px;flex-wrap:nowrap}")
+s=s.replace("function applySuggestion(i,j){","function fitSuggestionRows(){document.querySelectorAll('.suggestions').forEach(row=>{const buttons=[...row.querySelectorAll('.suggestionBtn')];buttons.forEach(b=>b.style.display='');const max=row.clientWidth;let used=0;buttons.forEach((b,n)=>{const w=b.getBoundingClientRect().width+(n?6:0);if(used+w<=max)used+=w;else b.style.display='none'})})}function applySuggestion(i,j){",1)
+s=s.replace("renderAnnual()}const SOLO_SIM_KEY", "renderAnnual();requestAnimationFrame(fitSuggestionRows)}const SOLO_SIM_KEY",1)
+p.write_text(s)
