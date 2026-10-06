@@ -1,0 +1,19 @@
+name: Fill memo suggestion space
+on:
+  push:
+    paths:
+      - '.github/workflows/fill-memo-suggestion-space.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/fill_memo_suggestion_space.py
+      - run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add index.html
+          git commit -m "Fill available memo suggestion space" || true
+          git push
